@@ -13,3 +13,4 @@ _scripts/*.csv
 
 # GoReleaser
 dist/*
+.idea

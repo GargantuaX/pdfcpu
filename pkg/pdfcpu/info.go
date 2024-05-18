@@ -116,12 +116,13 @@ func ensureInfoDict(ctx *model.Context) error {
 
 	now := types.DateString(time.Now())
 
-	v := "pdfcpu " + model.VersionStr
+	v := model.PdfSDKBrand
 
 	if ctx.Info == nil {
 
 		d := types.NewDict()
 		d.InsertString("Producer", v)
+		d.InsertString("Creator", v)
 		d.InsertString("CreationDate", now)
 		d.InsertString("ModDate", now)
 
