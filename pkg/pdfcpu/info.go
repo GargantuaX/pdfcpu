@@ -116,7 +116,7 @@ func ensureInfoDict(ctx *model.Context) error {
 
 	now := types.DateString(time.Now())
 
-	v := model.PdfSDKBrand
+	v := model.GetPdfSDKBrand()
 
 	if ctx.Info == nil {
 

@@ -18,14 +18,13 @@ package model
 
 import (
 	"fmt"
-	"os"
-
 	"github.com/pkg/errors"
+	"os"
 )
 
 // VersionStr is the current pdfcpu version.
 var VersionStr = "v0.8.0 dev"
-var PdfSDKBrand = os.Getenv("PDF_SDK_BRAND")
+var GetPdfSDKBrand = func() string { return os.Getenv("PDF_SDK_BRAND") }
 
 // Version is a type for the internal representation of PDF versions.
 type Version int
