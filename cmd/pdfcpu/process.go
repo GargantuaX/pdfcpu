@@ -1112,19 +1112,9 @@ func processImportImagesCommand(conf *model.Configuration) {
 }
 
 func processInsertPagesCommand(conf *model.Configuration) {
-	if len(flag.Args()) == 0 || len(flag.Args()) > 2 {
+	if len(flag.Args()) == 0 || len(flag.Args()) > 3 {
 		fmt.Fprintf(os.Stderr, "usage: %s\n\n", usagePagesInsert)
 		os.Exit(1)
-	}
-
-	inFile := flag.Arg(0)
-	if conf.CheckFileNameExt {
-		ensurePDFExtension(inFile)
-	}
-	outFile := ""
-	if len(flag.Args()) == 2 {
-		outFile = flag.Arg(1)
-		ensurePDFExtension(outFile)
 	}
 
 	pages, err := api.ParsePageSelection(selectedPages)
@@ -1139,7 +1129,43 @@ func processInsertPagesCommand(conf *model.Configuration) {
 		os.Exit(1)
 	}
 
-	process(cli.InsertPagesCommand(inFile, outFile, pages, conf, mode))
+	inFile := flag.Arg(0)
+	if hasPDFExtension(inFile) {
+		// pdfcpu pages insert inFile [outFile]
+
+		outFile := ""
+		if len(flag.Args()) == 2 {
+			outFile = flag.Arg(1)
+			ensurePDFExtension(outFile)
+		}
+
+		process(cli.InsertPagesCommand(inFile, outFile, pages, conf, mode, nil))
+
+		return
+	}
+
+	// pdfcpu pages insert description inFile [outFile]
+
+	pageConf, err := pdfcpu.ParsePageConfiguration(flag.Arg(0), conf.Unit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+	if pageConf == nil {
+		fmt.Fprintf(os.Stderr, "missing page configuration\n")
+		os.Exit(1)
+	}
+
+	inFile = flag.Arg(1)
+	ensurePDFExtension(inFile)
+
+	outFile := ""
+	if len(flag.Args()) == 3 {
+		outFile = flag.Arg(2)
+		ensurePDFExtension(outFile)
+	}
+
+	process(cli.InsertPagesCommand(inFile, outFile, pages, conf, mode, pageConf))
 }
 
 func processRemovePagesCommand(conf *model.Configuration) {
@@ -1576,7 +1602,7 @@ func processAddPropertiesCommand(conf *model.Configuration) {
 			continue
 		}
 		// Ensure key value pair.
-		ss := strings.Split(arg, "=")
+		ss := strings.SplitN(arg, "=", 2)
 		if len(ss) != 2 {
 			fmt.Fprintf(os.Stderr, "keyValuePair = 'key = value'\n")
 			fmt.Fprintf(os.Stderr, "usage: %s\n\n", usagePropertiesAdd)
@@ -1612,6 +1638,13 @@ func processRemovePropertiesCommand(conf *model.Configuration) {
 			}
 			continue
 		}
+
+		if !validate.DocumentProperty(arg) {
+			fmt.Fprintf(os.Stderr, "property name \"%s\" not allowed!\n", arg)
+			fmt.Fprintf(os.Stderr, "usage: %s\n\n", usagePropertiesRemove)
+			os.Exit(1)
+		}
+
 		keys = append(keys, arg)
 	}
 
@@ -1664,6 +1697,7 @@ func processListBoxesCommand(conf *model.Configuration) {
 			ensurePDFExtension(inFile)
 		}
 		process(cli.ListBoxesCommand(inFile, selectedPages, nil, conf))
+		return
 	}
 
 	pb, err := api.PageBoundariesFromBoxList(flag.Arg(0))
@@ -1808,6 +1842,7 @@ func processListAnnotationsCommand(conf *model.Configuration) {
 
 	process(cli.ListAnnotationsCommand(inFile, selectedPages, conf))
 }
+
 func processRemoveAnnotationsCommand(conf *model.Configuration) {
 	if len(flag.Args()) < 1 {
 		fmt.Fprintf(os.Stderr, "usage: %s\n", usageAnnotsRemove)
@@ -2290,6 +2325,7 @@ func processNDownCommand(conf *model.Configuration) {
 		}
 
 		process(cli.NDownCommand(inFile, outDir, outFile, selectedPages, n, cut, conf))
+		return
 	}
 
 	// pdfcpu ndown description n inFile outDir outFile

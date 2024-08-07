@@ -447,32 +447,6 @@ func (tf *TextField) renderN(xRefTable *model.XRefTable) ([]byte, error) {
 	}
 
 	tf.renderLines(xRefTable, boWidth, lh, w, y, lines, buf)
-	//cjk := pdffont.CJK(f.Script, f.Lang)
-
-	// for i := 0; i < len(lines); i++ {
-	// 	s := lines[i]
-	// 	lineBB := model.CalcBoundingBox(s, 0, 0, f.Name, f.Size)
-	// 	s = model.PrepBytes(xRefTable, s, f.Name, !cjk, f.RTL())
-	// 	x := 2 * boWidth
-	// 	if x == 0 {
-	// 		x = 2
-	// 	}
-	// 	switch tf.HorAlign {
-	// 	case types.AlignCenter:
-	// 		x = w/2 - lineBB.Width()/2
-	// 	case types.AlignRight:
-	// 		x = w - lineBB.Width() - 2
-	// 	}
-	// 	fmt.Fprint(buf, "BT ")
-	// 	if i == 0 {
-	// 		fmt.Fprintf(buf, "/%s %d Tf %.2f %.2f %.2f RG %.2f %.2f %.2f rg ",
-	// 			tf.fontID, f.Size,
-	// 			f.col.R, f.col.G, f.col.B,
-	// 			f.col.R, f.col.G, f.col.B)
-	// 	}
-	// 	fmt.Fprintf(buf, "%.2f %.2f Td (%s) Tj ET ", x, y, s)
-	// 	y -= lh
-	// }
 
 	if len(lines) > 0 {
 		fmt.Fprint(buf, "Q ")
@@ -979,15 +953,61 @@ func renderTextFieldAP(ctx *model.Context, d types.Dict, v string, multiLine boo
 	return nil
 }
 
-func EnsureTextFieldAP(ctx *model.Context, d types.Dict, v string, multiLine bool, fonts map[string]types.IndirectRef) error {
+func fontAttrs(ctx *model.Context, fd types.Dict, fontID, text string, fonts map[string]types.IndirectRef) (string, string, string, *types.IndirectRef, error) {
+	var prefix, name, lang string
+	var err error
+
+	fontIndRef := fd.IndirectRefEntry(fontID)
+	if fontIndRef == nil {
+		// create utf8 font * save as indRef
+		fontID, name, lang, fontIndRef, err = ensureUTF8FormFont(ctx, fonts)
+		if err != nil {
+			return "", "", "", nil, err
+		}
+		fd[fontID] = *fontIndRef
+	} else {
+		objNr := int(fontIndRef.ObjectNumber)
+		fontDict, err := ctx.DereferenceDict(*fontIndRef)
+		if err != nil {
+			return "", "", "", nil, err
+		}
+		if fontDict == nil {
+			// create utf8 font * save as indRef
+			fontID, name, lang, fontIndRef, err = ensureUTF8FormFont(ctx, fonts)
+			if err != nil {
+				return "", "", "", nil, err
+			}
+			fd[fontID] = *fontIndRef
+		} else {
+			prefix, name, err = pdffont.Name(ctx.XRefTable, fontDict, objNr)
+			if err != nil {
+				return "", "", "", nil, err
+			}
+			if len(prefix) == 0 && hasUTF(text) {
+				// create utf8 font * save as indRef
+				fontID, name, lang, fontIndRef, err = ensureUTF8FormFont(ctx, fonts)
+				if err != nil {
+					return "", "", "", nil, err
+				}
+				fd[fontID] = *fontIndRef
+			} else {
+				fonts[name] = *fontIndRef
+			}
+		}
+	}
+
+	return fontID, name, lang, fontIndRef, nil
+}
+
+func EnsureTextFieldAP(ctx *model.Context, d types.Dict, text string, multiLine bool, fonts map[string]types.IndirectRef) error {
 	ap := d.DictEntry("AP")
 	if ap == nil {
-		return renderTextFieldAP(ctx, d, v, multiLine, fonts)
+		return renderTextFieldAP(ctx, d, text, multiLine, fonts)
 	}
 
 	irN := ap.IndirectRefEntry("N")
 	if irN == nil {
-		return renderTextFieldAP(ctx, d, v, multiLine, fonts)
+		return renderTextFieldAP(ctx, d, text, multiLine, fonts)
 	}
 
 	sd, _, err := ctx.DereferenceStreamDict(*irN)
@@ -997,12 +1017,12 @@ func EnsureTextFieldAP(ctx *model.Context, d types.Dict, v string, multiLine boo
 
 	d1 := sd.DictEntry("Resources")
 	if d1 == nil {
-		return renderTextFieldAP(ctx, d, v, multiLine, fonts)
+		return renderTextFieldAP(ctx, d, text, multiLine, fonts)
 	}
 
 	fd := d1.DictEntry("Font")
 	if fd == nil {
-		return renderTextFieldAP(ctx, d, v, multiLine, fonts)
+		return renderTextFieldAP(ctx, d, text, multiLine, fonts)
 	}
 
 	s := d.StringEntry("DA")
@@ -1018,48 +1038,12 @@ func EnsureTextFieldAP(ctx *model.Context, d types.Dict, v string, multiLine boo
 		return err
 	}
 
-	var prefix, name, lang string
-
-	fontIndRef := fd.IndirectRefEntry(fontID)
-	if fontIndRef == nil {
-		// create utf8 font * save as indRef
-		fontID, name, lang, fontIndRef, err = ensureUTF8FormFont(ctx, fonts)
-		if err != nil {
-			return err
-		}
-		fd[fontID] = *fontIndRef
-	} else {
-		objNr := int(fontIndRef.ObjectNumber)
-		fontDict, err := ctx.DereferenceDict(*fontIndRef)
-		if err != nil {
-			return err
-		}
-		if fontDict == nil {
-			// create utf8 font * save as indRef
-			fontID, name, lang, fontIndRef, err = ensureUTF8FormFont(ctx, fonts)
-			if err != nil {
-				return err
-			}
-			fd[fontID] = *fontIndRef
-		} else {
-			prefix, name, err = pdffont.Name(ctx.XRefTable, fontDict, objNr)
-			if err != nil {
-				return err
-			}
-			if len(prefix) == 0 && hasUTF(v) {
-				// create utf8 font * save as indRef
-				fontID, name, lang, fontIndRef, err = ensureUTF8FormFont(ctx, fonts)
-				if err != nil {
-					return err
-				}
-				fd[fontID] = *fontIndRef
-			} else {
-				fonts[name] = *fontIndRef
-			}
-		}
+	fontID, name, lang, fontIndRef, err := fontAttrs(ctx, fd, fontID, text, fonts)
+	if err != nil {
+		return err
 	}
 
-	tf, _, err := NewTextField(ctx, d, v, multiLine, fontIndRef, fonts)
+	tf, _, err := NewTextField(ctx, d, text, multiLine, fontIndRef, fonts)
 	if err != nil {
 		return err
 	}
